@@ -1,67 +1,51 @@
-import time
-import smtplib
+# core/email_sequence.py
+
 from datetime import datetime, timedelta
-from email.mime.text import MIMEText
-from core.messagegen_ai_v2 import MessageGeneratorAI
+from core.messagegen_ai_v2 import generar_mensaje_ia
+from core.envio_email import enviar_email_a_lead
 from config.config import EMAIL_USERNAME, EMAIL_PASSWORD
+from db.manejador_db import obtener_leads, registrar_envio, obtener_envios_por_email
 
-class EmailSequenceManager:
-    def __init__(self, db=None):
-        self.db = db  # se puede conectar con base real más adelante
-        self.generator = MessageGeneratorAI()
+def enviar_mensajes_de_campaña(nombre_campaña="Campaña_VentasAI", modo="para_mi"):
+    leads = obtener_leads()
+    enviados = 0
+    hoy = datetime.now()
 
-        # Lead simulado con timestamp falso
-        self.leads = [{
-            "id": 1,
-            "nombre": "Sarah",
-            "empresa": "Bluewave Marketing",
-            "industria": "Digital Advertising",
-            "cargo": "Marketing Director",
-            "sitio_web": "https://bluewavemarketing.com",
-            "email": "estivenrodriguez2019@gmail.com",
-            "ultimo_contacto": datetime.utcnow() - timedelta(hours=30),
-            "respondio": False,
-            "seguimiento_enviado": False
-        }]
+    for lead in leads:
+        email = lead.get("email")
+        if not email:
+            continue
 
-    def verificar_seguimiento(self):
-        print("[*] Checking leads for follow-up...")
+        historial = obtener_envios_por_email(email)
+        etapas_enviadas = [h['etapa'] for h in historial]
 
-        for lead in self.leads:
-            if lead["respondio"] or lead["seguimiento_enviado"]:
-                continue
+        # ENVIAR DÍA 0 (inicio)
+        if 0 not in etapas_enviadas:
+            mensaje = generar_mensaje_ia(lead, tipo="inicio", modo=modo)
+            if mensaje != "ERROR":
+                if enviar_email_a_lead(email, "Let me help your business grow with AI", mensaje, EMAIL_USERNAME, EMAIL_PASSWORD):
+                    registrar_envio(email, nombre_campaña, 0)
+                    enviados += 1
+            continue
 
-            tiempo_pasado = datetime.utcnow() - lead["ultimo_contacto"]
-            if tiempo_pasado > timedelta(hours=24):
-                self.enviar_seguimiento(lead)
+        for registro in historial:
+            fecha_envio = datetime.strptime(registro["fecha_envio"], "%Y-%m-%d %H:%M:%S")
+            dias_pasados = (hoy - fecha_envio).days
 
-    def enviar_seguimiento(self, lead):
-        print(f"[+] Sending follow-up to {lead['nombre']}")
-        mensaje = self.generator.generar_mensaje(lead, modo="cliente", paso="seguimiento")
+            # ENVIAR DÍA 3 (seguimiento)
+            if registro["etapa"] == 0 and 3 <= dias_pasados < 7 and 1 not in etapas_enviadas:
+                mensaje = generar_mensaje_ia(lead, tipo="seguimiento", modo=modo)
+                if mensaje != "ERROR":
+                    if enviar_email_a_lead(email, "Following up on our AI proposal", mensaje, EMAIL_USERNAME, EMAIL_PASSWORD):
+                        registrar_envio(email, nombre_campaña, 1)
+                        enviados += 1
 
-        if mensaje == "ERROR":
-            print(f"[!] Error generating follow-up for {lead['email']}")
-            return
+            # ENVIAR DÍA 7 (cierre)
+            elif registro["etapa"] == 1 and dias_pasados >= 4 and 2 not in etapas_enviadas:
+                mensaje = generar_mensaje_ia(lead, tipo="cierre", modo=modo)
+                if mensaje != "ERROR":
+                    if enviar_email_a_lead(email, "Final note about growing with AI", mensaje, EMAIL_USERNAME, EMAIL_PASSWORD):
+                        registrar_envio(email, nombre_campaña, 2)
+                        enviados += 1
 
-        try:
-            msg = MIMEText(mensaje)
-            msg["Subject"] = "Just following up on my last email"
-            msg["From"] = EMAIL_USERNAME
-            msg["To"] = lead["email"]
-
-            server = smtplib.SMTP("smtp.gmail.com", 587)
-            server.starttls()
-            server.login(EMAIL_USERNAME, EMAIL_PASSWORD)
-            server.send_message(msg)
-            server.quit()
-
-            lead["seguimiento_enviado"] = True
-            print(f"[✔] Follow-up sent to {lead['email']}")
-
-        except Exception as e:
-            print(f"[!] Error sending follow-up: {e}")
-
-# Ejecutar en modo prueba
-if __name__ == "__main__":
-    manager = EmailSequenceManager()
-    manager.verificar_seguimiento()
+    return enviados

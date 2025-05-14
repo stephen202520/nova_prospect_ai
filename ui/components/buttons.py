@@ -1,76 +1,87 @@
+# buttons.py
+
 import tkinter as tk
-import sys
-import os
+from tkinter import messagebox
+from core.email_sender import enviar_email_real
+from core.messagegen_ai_v2 import generar_mensaje_para_lead
+from core.email_sequence import enviar_mensajes_de_campaña
+from db.manejador_db import actualizar_estado_envio, obtener_modo_actual, registrar_envio
+import datetime
 
-# Ajuste de ruta para importar desde core/
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(_file_), '../../')))
-
-from core.messagegen_ai_v2 import generar_mensaje_ia
-from core.envio_email import enviar_email_real
-
-class Botonera:
-    def _init_(self, parent, get_datos_lead, get_modo_activo, contador_callback, log_callback):
+class ButtonsSection:
+    def _init_(self, parent, leads_manager, contador_var):
         self.parent = parent
-        self.get_datos_lead = get_datos_lead
-        self.get_modo_activo = get_modo_activo
-        self.contador_callback = contador_callback
-        self.log_callback = log_callback
+        self.leads_manager = leads_manager
+        self.contador_var = contador_var
 
-        self.crear_boton("Send Email to Lead", "Enviar primer mensaje", self.enviar_mensaje_inicial)
-        self.crear_boton("Send Follow-Up", "Enviar seguimiento", self.enviar_mensaje_followup)
-        self.crear_boton("Send Closing Email", "Enviar mensaje final", self.enviar_mensaje_cierre)
+        self.frame = tk.Frame(parent, bg="#1a1a1a")
+        self.frame.pack(pady=10)
 
-    def crear_boton(self, texto, texto_es, comando):
-        frame = tk.Frame(self.parent, bg="#1a1a1a")
-        frame.pack(pady=6)
-        boton = tk.Button(
-            frame,
-            text=texto,
-            font=("Segoe UI", 12, "bold"),
-            bg="#007acc",
-            fg="white",
-            padx=14,
-            pady=6,
-            command=comando
-        )
-        boton.pack()
-        etiqueta = tk.Label(
-            frame,
-            text=texto_es,
-            font=("Segoe UI", 9),
-            bg="#1a1a1a",
-            fg="#cccccc"
-        )
-        etiqueta.pack()
+        self.create_button("Send Email to Lead", "Enviar correo inicial al lead", self.send_email_to_lead)
+        self.create_button("Send Follow-Up", "Enviar correo de seguimiento (día 3)", self.send_follow_up)
+        self.create_button("Launch Campaign", "Lanzar campaña completa (día 0, 3 y 7)", self.launch_campaign)
 
-    def enviar_mensaje_inicial(self):
-        self._procesar_envio(tipo="inicial")
+    def create_button(self, text, subtext, command):
+        frame = tk.Frame(self.frame, bg="#1a1a1a")
+        frame.pack(pady=7)
 
-    def enviar_mensaje_followup(self):
-        self._procesar_envio(tipo="seguimiento")
+        btn = tk.Button(frame, text=text, command=command, font=("Segoe UI", 12, "bold"),
+                        bg="#f6c90e", fg="#1a1a1a", width=30, height=2, relief="raised", bd=3)
+        btn.pack()
 
-    def enviar_mensaje_cierre(self):
-        self._procesar_envio(tipo="cierre")
+        label = tk.Label(frame, text=subtext, font=("Segoe UI", 9), bg="#1a1a1a", fg="white")
+        label.pack()
 
-    def _procesar_envio(self, tipo):
-        datos_lead = self.get_datos_lead()
-        modo = self.get_modo_activo()
-
-        if not datos_lead or "email" not in datos_lead:
-            self.log_callback("Lead incompleto o sin email.")
+    def send_email_to_lead(self):
+        modo = obtener_modo_actual()
+        lead = self.leads_manager.obtener_siguiente_lead()
+        if not lead:
+            messagebox.showinfo("Info", "No hay más leads disponibles.")
             return
 
-        self.log_callback(f"Generando mensaje IA ({tipo}) para {datos_lead['email']}...")
-
-        try:
-            asunto, cuerpo = generar_mensaje_ia(datos_lead, tipo=tipo, modo=modo)
-            enviado = enviar_email_real(datos_lead['email'], asunto, cuerpo)
-
-            if enviado:
-                self.contador_callback()
-                self.log_callback(f"Email enviado exitosamente a {datos_lead['email']}.")
+        tipo_mensaje = "inicio"
+        mensaje = generar_mensaje_para_lead(lead, modo, tipo_mensaje)
+        if mensaje:
+            exito = enviar_email_real(lead['email'], mensaje)
+            if exito:
+                registrar_envio(lead['email'], tipo_mensaje)
+                actualizar_estado_envio(lead['email'], tipo_mensaje)
+                self.incrementar_contador()
+                messagebox.showinfo("Enviado", f"Mensaje enviado a {lead['email']}")
             else:
-                self.log_callback(f"No se pudo enviar el email a {datos_lead['email']}.")
+                messagebox.showerror("Error", "No se pudo enviar el correo.")
+        else:
+            messagebox.showerror("Error", "No se generó el mensaje.")
 
+    def send_follow_up(self):
+        modo = obtener_modo_actual()
+        lead = self.leads_manager.obtener_siguiente_lead()
+        if not lead:
+            messagebox.showinfo("Info", "No hay más leads disponibles.")
+            return
+
+        tipo_mensaje = "seguimiento"
+        mensaje = generar_mensaje_para_lead(lead, modo, tipo_mensaje)
+        if mensaje:
+            exito = enviar_email_real(lead['email'], mensaje)
+            if exito:
+                registrar_envio(lead['email'], tipo_mensaje)
+                actualizar_estado_envio(lead['email'], tipo_mensaje)
+                self.incrementar_contador()
+                messagebox.showinfo("Enviado", f"Seguimiento enviado a {lead['email']}")
+            else:
+                messagebox.showerror("Error", "No se pudo enviar el correo.")
+        else:
+            messagebox.showerror("Error", "No se generó el mensaje.")
+
+    def launch_campaign(self):
+        modo = obtener_modo_actual()
+        try:
+            enviados = enviar_mensajes_de_campaña("Campaña_VentasAI", modo)
+            self.contador_var.set(self.contador_var.get() + enviados)
+            messagebox.showinfo("Campaña lanzada", f"Se enviaron {enviados} mensajes en total.")
         except Exception as e:
-            self.log_callback(f"Error al generar/enviar mensaje: {str(e)}")
+            messagebox.showerror("Error", f"No se pudo lanzar la campaña:\n{e}")
+
+    def incrementar_contador(self):
+        self.contador_var.set(self.contador_var.get() + 1)

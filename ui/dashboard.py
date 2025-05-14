@@ -1,79 +1,133 @@
+# ui/dashboard.py
+
 import tkinter as tk
-from ui.components.buttons import BotonEnviar
+from tkinter import messagebox
+from config.config import EMAIL_USERNAME, EMAIL_PASSWORD
+from core.envio_email import enviar_email_a_lead
+from core.messagegen_ai_v2 import generar_mensaje_ia
+from core.email_sequence import enviar_mensajes_de_campaña
+from ui.components.buttons import ButtonsSection
 
-class Dashboard:
-    def _init_(self):
-        self.root = tk.Tk()
-        self.root.title("NovaProspectAI - PRO")
-        self.root.geometry("1000x620")
-        self.root.configure(bg="#1e1e1e")
-
-        self.modo = "cliente"  # cliente o mi
-        self.contador = 0
-
+class BotonEnviar(tk.Frame):
+    def __init__(self, parent, modo_callback, contador_callback):
+        super()._init_(parent, bg="#1e1e1e")
+        self.parent = parent
+        self.modo_callback = modo_callback
+        self.contador_callback = contador_callback
+        self.pack(pady=10)
         self.build_ui()
-        self.root.mainloop()
 
     def build_ui(self):
-        tk.Label(
-            self.root,
-            text="NovaProspectAI",
-            font=("Segoe UI", 28, "bold"),
-            bg="#1e1e1e",
-            fg="#f6c90e"
-        ).pack(pady=20)
-
-        self.modo_button = tk.Button(
-            self.root,
-            text="Mode: For My Clients\nModo: Para mis clientes",
-            command=self.toggle_modo,
-            font=("Segoe UI", 14),
-            bg="#444",
+        self.button = tk.Button(
+            self,
+            text="Send Email to Lead\nEnviar correo al lead",
+            font=("Segoe UI", 12, "bold"),
+            bg="#28a745",
             fg="white",
-            width=30,
-            height=2
+            padx=10,
+            pady=8,
+            command=self.enviar_email
         )
-        self.modo_button.pack(pady=10)
+        self.button.pack()
 
-        # Botón de enviar
-        self.boton_enviar = BotonEnviar(
-            parent=self.root,
-            modo_callback=self.get_modo,
-            contador_callback=self.incrementar_contador
+    def enviar_email(self):
+        modo = self.modo_callback()
+
+        lead = {
+            "nombre": "Sarah",
+            "empresa": "Bluewave Marketing",
+            "sector": "Digital Advertising",
+            "cargo": "Marketing Director",
+            "sitio_web": "https://bluewavemarketing.com",
+            "email": "estivenrodriguez2019@gmail.com"
+        }
+
+        paso = "inicio" if modo == "cliente" else "mi_inicio"
+        mensaje = generar_mensaje_ia(lead, tipo=paso, modo=modo)
+
+        if mensaje == "ERROR":
+            messagebox.showerror("Error", "No se pudo generar el mensaje con IA.")
+            return
+
+        success = enviar_email_a_lead(
+            destinatario=lead["email"],
+            asunto="Let me help your business grow with AI",
+            cuerpo=mensaje,
+            remitente=EMAIL_USERNAME,
+            clave=EMAIL_PASSWORD
         )
 
-        # Contador visual
-        self.label_contador = tk.Label(
-            self.root,
-            text="Emails sent: 0\nCorreos enviados",
-            font=("Segoe UI", 12),
-            bg="#1e1e1e",
-            fg="white"
-        )
-        self.label_contador.pack(pady=20)
-
-    def toggle_modo(self):
-        if self.modo == "cliente":
-            self.modo = "mi"
-            self.root.configure(bg="#202e1e")
-            self.modo_button.config(
-                text="Mode: For Me\nModo: Para mí"
-            )
+        if success:
+            self.contador_callback()
+            messagebox.showinfo("Éxito", "Correo enviado correctamente.")
         else:
-            self.modo = "cliente"
-            self.root.configure(bg="#1e1e1e")
-            self.modo_button.config(
-                text="Mode: For My Clients\nModo: Para mis clientes"
-            )
+            messagebox.showerror("Error", "Falló al enviar el correo.")
 
-    def get_modo(self):
-        return self.modo
+class Dashboard(tk.Tk):
+    def __init__(self):
+        super()._init_()
+        self.title("NovaProspectAI")
+        self.geometry("1000x600")
+        self.configure(bg="#121212")
 
-    def incrementar_contador(self):
-        self.contador += 1
-        self.label_contador.config(
-            text=f"Emails sent: {self.contador}\nCorreos enviados"
+        self.modo = tk.StringVar(value="para_mi")  # o "cliente"
+        self.contador = tk.IntVar(value=0)
+
+        self.crear_ui()
+
+    def crear_ui(self):
+        titulo = tk.Label(self, text="NovaProspectAI", font=("Segoe UI", 24, "bold"),
+                          bg="#121212", fg="#f6c90e")
+        titulo.pack(pady=20)
+
+        selector_frame = tk.Frame(self, bg="#121212")
+        selector_frame.pack()
+
+        btn_mi = tk.Button(selector_frame, text="Buscar clientes para mí",
+                           command=lambda: self.cambiar_modo("para_mi"),
+                           bg="#007bff", fg="white", width=25)
+        btn_mi.grid(row=0, column=0, padx=10)
+
+        btn_cliente = tk.Button(selector_frame, text="Buscar clientes para mis clientes",
+                                command=lambda: self.cambiar_modo("cliente"),
+                                bg="#6c757d", fg="white", width=25)
+        btn_cliente.grid(row=0, column=1, padx=10)
+
+        modo_label = tk.Label(self, textvariable=self.modo, bg="#121212", fg="white")
+        modo_label.pack(pady=5)
+
+        contador_label = tk.Label(self, textvariable=self.contador,
+                                  font=("Segoe UI", 16), bg="#121212", fg="white")
+        contador_label.pack()
+
+        # Sección de botones IA
+        botones_ia = ButtonsSection(self, leads_manager=None, contador_var=self.contador)
+
+        # Botón para ejecutar campaña automática (día 0, 3, 7)
+        boton_campaña = tk.Button(
+            self,
+            text="Launch Automated Campaign\nLanzar campaña automática",
+            font=("Segoe UI", 12, "bold"),
+            bg="#f6c90e",
+            fg="#1a1a1a",
+            width=30,
+            height=2,
+            command=self.ejecutar_campaña_automatica
         )
+        boton_campaña.pack(pady=15)
+
+    def cambiar_modo(self, nuevo_modo):
+        self.modo.set(nuevo_modo)
+
+    def obtener_modo(self):
+        return self.modo.get()
+
+    def ejecutar_campaña_automatica(self):
+        modo = self.obtener_modo()
+        enviados = enviar_mensajes_de_campaña("Campaña_VentasAI", modo)
+        messagebox.showinfo("Campaña ejecutada", f"Se enviaron {enviados} mensajes.")
+        self.contador.set(self.contador.get() + enviados)
 
 if __name__ == "__main__":
-    Dashboard()
+    app = Dashboard()
+    app.mainloop()
