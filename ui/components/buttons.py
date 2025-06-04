@@ -1,15 +1,14 @@
-# buttons.py
+# ui/components/buttons.py
 
 import tkinter as tk
 from tkinter import messagebox
-from core.email_sender import enviar_email_real
-from core.messagegen_ai_v2 import generar_mensaje_para_lead
+from core.messagegen_ai_v2 import generar_mensaje_ia
 from core.email_sequence import enviar_mensajes_de_campaña
-from db.manejador_db import actualizar_estado_envio, obtener_modo_actual, registrar_envio
-import datetime
+from core.envio_email import enviar_email_a_lead
+from config.config import EMAIL_USERNAME, EMAIL_PASSWORD
 
 class ButtonsSection:
-    def _init_(self, parent, leads_manager, contador_var):
+    def __init__(self, parent, leads_manager, contador_var):
         self.parent = parent
         self.leads_manager = leads_manager
         self.contador_var = contador_var
@@ -33,19 +32,25 @@ class ButtonsSection:
         label.pack()
 
     def send_email_to_lead(self):
-        modo = obtener_modo_actual()
+        modo = self.obtener_modo_actual()
         lead = self.leads_manager.obtener_siguiente_lead()
+
         if not lead:
             messagebox.showinfo("Info", "No hay más leads disponibles.")
             return
 
         tipo_mensaje = "inicio"
-        mensaje = generar_mensaje_para_lead(lead, modo, tipo_mensaje)
+        mensaje = generar_mensaje_ia(lead, tipo=tipo_mensaje, modo=modo)
+
         if mensaje:
-            exito = enviar_email_real(lead['email'], mensaje)
+            exito = enviar_email_a_lead(
+                destinatario=lead['email'],
+                asunto="Let me help your business grow with AI",
+                cuerpo=mensaje,
+                remitente=EMAIL_USERNAME,
+                clave=EMAIL_PASSWORD
+            )
             if exito:
-                registrar_envio(lead['email'], tipo_mensaje)
-                actualizar_estado_envio(lead['email'], tipo_mensaje)
                 self.incrementar_contador()
                 messagebox.showinfo("Enviado", f"Mensaje enviado a {lead['email']}")
             else:
@@ -54,19 +59,25 @@ class ButtonsSection:
             messagebox.showerror("Error", "No se generó el mensaje.")
 
     def send_follow_up(self):
-        modo = obtener_modo_actual()
+        modo = self.obtener_modo_actual()
         lead = self.leads_manager.obtener_siguiente_lead()
+
         if not lead:
             messagebox.showinfo("Info", "No hay más leads disponibles.")
             return
 
         tipo_mensaje = "seguimiento"
-        mensaje = generar_mensaje_para_lead(lead, modo, tipo_mensaje)
+        mensaje = generar_mensaje_ia(lead, tipo=tipo_mensaje, modo=modo)
+
         if mensaje:
-            exito = enviar_email_real(lead['email'], mensaje)
+            exito = enviar_email_a_lead(
+                destinatario=lead['email'],
+                asunto="Just following up – quick reminder",
+                cuerpo=mensaje,
+                remitente=EMAIL_USERNAME,
+                clave=EMAIL_PASSWORD
+            )
             if exito:
-                registrar_envio(lead['email'], tipo_mensaje)
-                actualizar_estado_envio(lead['email'], tipo_mensaje)
                 self.incrementar_contador()
                 messagebox.showinfo("Enviado", f"Seguimiento enviado a {lead['email']}")
             else:
@@ -75,7 +86,7 @@ class ButtonsSection:
             messagebox.showerror("Error", "No se generó el mensaje.")
 
     def launch_campaign(self):
-        modo = obtener_modo_actual()
+        modo = self.obtener_modo_actual()
         try:
             enviados = enviar_mensajes_de_campaña("Campaña_VentasAI", modo)
             self.contador_var.set(self.contador_var.get() + enviados)
@@ -85,3 +96,6 @@ class ButtonsSection:
 
     def incrementar_contador(self):
         self.contador_var.set(self.contador_var.get() + 1)
+
+    def obtener_modo_actual(self):
+        return self.parent.modo.get()

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from core.messagegen_ai_v2 import generar_mensaje_ia
 from core.envio_email import enviar_email_a_lead
 from config.config import EMAIL_USERNAME, EMAIL_PASSWORD
-from db.manejador_db import obtener_leads, registrar_envio, obtener_envios_por_email
+from core.db.manejador_db import obtener_leads, registrar_envio, obtener_envios_por_email
 
 def enviar_mensajes_de_campaña(nombre_campaña="Campaña_VentasAI", modo="para_mi"):
     leads = obtener_leads()
